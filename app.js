@@ -37,6 +37,7 @@ const state = {
             material: null,
             lightCyan: null,
             lightPink: null,
+            particles: null,
             clock: null
         },
         waveform: {
@@ -49,8 +50,12 @@ const state = {
     }
 };
 
+// Audio context holder for paced breathing sound synthesis
+let audioCtx = null;
+
 // Start App when DOM Loaded
 document.addEventListener("DOMContentLoaded", () => {
+    initNavigation();
     initSimulator();
     initThreeJS();
     initWaveform();
@@ -64,7 +69,78 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 /* =========================================================================
-   1. BIOMETRIC SIMULATOR & SCORING
+   1. VIEW SWITCHING & NAVIGATION
+   ========================================================================= */
+
+function initNavigation() {
+    const navItems = document.querySelectorAll('.nav-links .nav-item');
+    const views = document.querySelectorAll('.views-container .app-view');
+
+    function showView(targetId) {
+        views.forEach(v => v.classList.remove('active'));
+        navItems.forEach(n => n.classList.remove('active'));
+
+        const activeView = document.getElementById(`view-${targetId}`);
+        const activeNav = document.getElementById(`nav-${targetId === 'exercises' ? 'ex' : targetId}`);
+
+        if (activeView) activeView.classList.add('active');
+        if (activeNav) activeNav.classList.add('active');
+
+        // Move Three.js renderer DOM element based on target view
+        const canvasContainerDash = document.getElementById('threejs-dashboard-container');
+        const canvasContainerEx = document.getElementById('threejs-breathing-container');
+        const renderer = state.visuals.three.renderer;
+
+        if (renderer && renderer.domElement) {
+            if (targetId === 'exercises') {
+                if (canvasContainerEx) {
+                    canvasContainerEx.appendChild(renderer.domElement);
+                    resizeRenderer(canvasContainerEx);
+                }
+            } else {
+                if (canvasContainerDash) {
+                    canvasContainerDash.appendChild(renderer.domElement);
+                    resizeRenderer(canvasContainerDash);
+                }
+            }
+        }
+
+        // Trigger weekly report recalculation if entering Insights view
+        if (targetId === 'insights') {
+            updateWeeklyReport();
+        }
+    }
+
+    function resizeRenderer(container) {
+        const camera = state.visuals.three.camera;
+        const renderer = state.visuals.three.renderer;
+        if (camera && renderer && container) {
+            const w = container.clientWidth || 300;
+            const h = container.clientHeight || 300;
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+        }
+    }
+
+    // Attach click listeners to sidebar navigation items
+    navItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.preventDefault();
+            const href = item.getAttribute('href');
+            const targetId = href.replace('#', '');
+            window.location.hash = targetId;
+            showView(targetId);
+        });
+    });
+
+    // Handle initial routing based on URL hash
+    const initialHash = window.location.hash.replace('#', '') || 'dashboard';
+    showView(initialHash);
+}
+
+/* =========================================================================
+   2. BIOMETRIC SIMULATOR & SCORING
    ========================================================================= */
 
 function initSimulator() {
@@ -82,7 +158,7 @@ function initSimulator() {
         breathing: document.getElementById('val-breathing')
     };
 
-    // Update Slider Values UI
+    // Update Simulator values text labels
     function updateSliderUI(key, val) {
         let text = val + "%";
         if (key === 'anxiety') {
@@ -111,16 +187,18 @@ function initSimulator() {
 
     // Attach listeners
     Object.keys(sliders).forEach(key => {
-        sliders[key].addEventListener('input', (e) => {
-            const val = parseInt(e.target.value);
-            updateSliderUI(key, val);
-            calculateTelemetry();
-        });
-        // Initial setup
-        updateSliderUI(key, parseInt(sliders[key].value));
+        if (sliders[key]) {
+            sliders[key].addEventListener('input', (e) => {
+                const val = parseInt(e.target.value);
+                updateSliderUI(key, val);
+                calculateTelemetry();
+            });
+            // Initial setup
+            updateSliderUI(key, parseInt(sliders[key].value));
+        }
     });
 
-    // Reset buttons
+    // Reset control buttons
     document.getElementById('btn-reset-sim').addEventListener('click', () => {
         sliders.anxiety.value = 25;
         sliders.caffeine.value = 10;
@@ -147,142 +225,146 @@ function initSimulator() {
 function calculateTelemetry() {
     const s = state.simulation;
     
-    // Heart Rate calculation (Physiological approximation)
-    // base (62) + caffeine impact + anxiety impact + physical activity - deep breathing offset
+    // Physiological approximation calculations
     let targetHR = s.baseHR;
     targetHR += (s.caffeine * 0.25);
     targetHR += (s.anxiety * 0.35);
     targetHR += (s.activity * 0.55);
     targetHR -= (s.breathing * 0.22);
     
-    // Heart Rate Variability (HRV) calculation (Physiological approximation)
-    // Base HRV drops with caffeine, anxiety, physical stress; raises with deep breathing
     let targetHRV = s.baseHRV;
     targetHRV -= (s.caffeine * 0.25);
     targetHRV -= (s.anxiety * 0.40);
     targetHRV -= (s.activity * 0.20);
     targetHRV += (s.breathing * 0.35);
     
-    // Clamp values
     s.targetHR = Math.max(45, Math.min(180, targetHR));
     s.targetHRV = Math.max(10, Math.min(130, targetHRV));
 }
 
-// Tick loop to add minor noise and interpolate simulated data smoothly
+// continuous tick loop for biometric noise & smooth interpolation
 function clockLoop() {
     const s = state.simulation;
     
-    // Smooth interpolation towards targets
+    // Smooth interpolation
     const lerpSpeed = 0.08;
     
-    // Add heartbeat noise
     const hrNoise = (Math.random() - 0.5) * 1.8;
     const hrvNoise = (Math.random() - 0.5) * 2.2;
     
     s.currentHR = s.currentHR + (s.targetHR - s.currentHR) * lerpSpeed + hrNoise;
     s.currentHRV = s.currentHRV + (s.targetHRV - s.currentHRV) * lerpSpeed + hrvNoise;
     
-    // Boundaries clamp
     s.currentHR = Math.max(45, Math.min(180, s.currentHR));
     s.currentHRV = Math.max(8, Math.min(140, s.currentHRV));
     
-    // Calculate final stress score (0-100)
-    // High heart rate and low HRV increases stress index
-    const hrFactor = Math.max(0, Math.min(1, (s.currentHR - 50) / 100)); // 50 to 150
-    const hrvFactor = Math.max(0, Math.min(1, (110 - s.currentHRV) / 95)); // 110ms down to 15ms
+    // Calculate stress score (0-100)
+    const hrFactor = Math.max(0, Math.min(1, (s.currentHR - 50) / 100));
+    const hrvFactor = Math.max(0, Math.min(1, (110 - s.currentHRV) / 95));
     
-    // Weighted combination: HRV represents parasympathetic tone (weighted more heavily at rest)
     let score = (hrFactor * 40) + (hrvFactor * 60);
-    
-    // Adjust by direct anxiety score for simulation accuracy
     score = score * 0.75 + (s.anxiety * 0.25);
     s.stressScore = Math.max(1, Math.min(100, Math.round(score)));
     
-    // Determine category
+    // Map to categories
     let badge = document.getElementById('global-stress-badge');
     let badgeText = document.getElementById('global-stress-text');
     let orbStatus = document.getElementById('orb-status-badge');
     
     if (s.stressScore < 35) {
         s.stressCategory = "Calm";
-        badge.className = "global-status-badge calm";
-        badgeText.innerHTML = '<i data-lucide="check-circle-2"></i> RESTED & RECOVERING';
-        orbStatus.textContent = "CALM STATE";
-        orbStatus.style.borderColor = "var(--neon-cyan)";
-        orbStatus.style.color = "var(--neon-cyan)";
-        orbStatus.style.backgroundColor = "rgba(0, 243, 255, 0.1)";
+        if (badge) badge.className = "global-status-badge calm";
+        if (badgeText) badgeText.innerHTML = '<i data-lucide="check-circle-2"></i> RESTED & RECOVERING';
+        if (orbStatus) {
+            orbStatus.textContent = "CALM STATE";
+            orbStatus.style.borderColor = "var(--neon-green)";
+            orbStatus.style.color = "var(--neon-green)";
+            orbStatus.style.backgroundColor = "rgba(0, 255, 136, 0.1)";
+        }
     } else if (s.stressScore < 60) {
         s.stressCategory = "Balanced";
-        badge.className = "global-status-badge alert";
-        badgeText.innerHTML = '<i data-lucide="activity"></i> AUTONOMIC BALANCE';
-        orbStatus.textContent = "BALANCED";
-        orbStatus.style.borderColor = "var(--neon-purple)";
-        orbStatus.style.color = "var(--neon-purple)";
-        orbStatus.style.backgroundColor = "rgba(189, 0, 255, 0.1)";
+        if (badge) badge.className = "global-status-badge alert";
+        if (badgeText) badgeText.innerHTML = '<i data-lucide="activity"></i> AUTONOMIC BALANCE';
+        if (orbStatus) {
+            orbStatus.textContent = "BALANCED";
+            orbStatus.style.borderColor = "var(--neon-cyan)";
+            orbStatus.style.color = "var(--neon-cyan)";
+            orbStatus.style.backgroundColor = "rgba(0, 243, 255, 0.1)";
+        }
     } else if (s.stressScore < 78) {
         s.stressCategory = "Alert";
-        badge.className = "global-status-badge alert";
-        badgeText.innerHTML = '<i data-lucide="alert-circle"></i> ELEVATED STRESS';
-        orbStatus.textContent = "ELEVATED ALERT";
-        orbStatus.style.borderColor = "var(--neon-yellow)";
-        orbStatus.style.color = "var(--neon-yellow)";
-        orbStatus.style.backgroundColor = "rgba(255, 183, 0, 0.1)";
+        if (badge) badge.className = "global-status-badge alert";
+        if (badgeText) badgeText.innerHTML = '<i data-lucide="alert-circle"></i> ELEVATED STRESS';
+        if (orbStatus) {
+            orbStatus.textContent = "ELEVATED ALERT";
+            orbStatus.style.borderColor = "var(--neon-yellow)";
+            orbStatus.style.color = "var(--neon-yellow)";
+            orbStatus.style.backgroundColor = "rgba(255, 183, 0, 0.1)";
+        }
     } else {
         s.stressCategory = "Stress";
-        badge.className = "global-status-badge stress";
-        badgeText.innerHTML = '<i data-lucide="alert-triangle"></i> STRESS OVERLOAD';
-        orbStatus.textContent = "ACUTE STRESS";
-        orbStatus.style.borderColor = "var(--neon-pink)";
-        orbStatus.style.color = "var(--neon-pink)";
-        orbStatus.style.backgroundColor = "rgba(255, 0, 85, 0.1)";
+        if (badge) badge.className = "global-status-badge stress";
+        if (badgeText) badgeText.innerHTML = '<i data-lucide="alert-triangle"></i> STRESS OVERLOAD';
+        if (orbStatus) {
+            orbStatus.textContent = "ACUTE STRESS";
+            orbStatus.style.borderColor = "var(--neon-pink)";
+            orbStatus.style.color = "var(--neon-pink)";
+            orbStatus.style.backgroundColor = "rgba(255, 0, 85, 0.1)";
+        }
     }
     
-    // Update digital displays
-    document.getElementById('metric-hr').textContent = Math.round(s.currentHR);
-    document.getElementById('metric-hrv').textContent = Math.round(s.currentHRV);
-    document.getElementById('stress-index-number').textContent = s.stressScore;
-    document.getElementById('stress-index-category').textContent = s.stressCategory.toUpperCase() + " STATE";
+    // Update dashboard labels
+    const metricHR = document.getElementById('metric-hr');
+    const metricHRV = document.getElementById('metric-hrv');
+    const stressIndexNum = document.getElementById('stress-index-number');
+    const stressIndexCat = document.getElementById('stress-index-category');
+    const parasympPct = document.getElementById('parasymp-pct');
+    const parasympFill = document.getElementById('parasymp-fill');
+    
+    if (metricHR) metricHR.textContent = Math.round(s.currentHR);
+    if (metricHRV) metricHRV.textContent = Math.round(s.currentHRV);
+    if (stressIndexNum) stressIndexNum.textContent = s.stressScore;
+    if (stressIndexCat) stressIndexCat.textContent = s.stressCategory.toUpperCase() + " STATE";
     
     const hrvPercentage = Math.round(Math.max(0, Math.min(100, (s.currentHRV / 120) * 100)));
-    document.getElementById('parasymp-pct').textContent = hrvPercentage + "%";
-    document.getElementById('parasymp-fill').style.width = hrvPercentage + "%";
+    if (parasympPct) parasympPct.textContent = hrvPercentage + "%";
+    if (parasympFill) parasympFill.style.width = hrvPercentage + "%";
     
-    // Update metric statuses
     const hrvStatusText = document.getElementById('hrv-status-label');
-    if (s.currentHRV > 70) {
-        hrvStatusText.textContent = "Excellent Tone";
-        hrvStatusText.style.color = "var(--neon-green)";
-    } else if (s.currentHRV > 45) {
-        hrvStatusText.textContent = "Stable Tone";
-        hrvStatusText.style.color = "var(--neon-cyan)";
-    } else {
-        hrvStatusText.textContent = "Suppressed HRV";
-        hrvStatusText.style.color = "var(--neon-pink)";
+    if (hrvStatusText) {
+        if (s.currentHRV > 70) {
+            hrvStatusText.textContent = "Excellent Tone";
+            hrvStatusText.style.color = "var(--neon-green)";
+        } else if (s.currentHRV > 45) {
+            hrvStatusText.textContent = "Stable Tone";
+            hrvStatusText.style.color = "var(--neon-cyan)";
+        } else {
+            hrvStatusText.textContent = "Suppressed HRV";
+            hrvStatusText.style.color = "var(--neon-pink)";
+        }
     }
     
-    // Dynamic breathing control speed mapping (scale heartbeat animation duration)
     const heartIcon = document.getElementById('heart-pulse-icon');
-    const bps = s.currentHR / 60;
-    const dur = 1 / bps;
-    heartIcon.style.animationDuration = `${dur}s`;
+    if (heartIcon) {
+        const bps = s.currentHR / 60;
+        const dur = 1 / bps;
+        heartIcon.style.animationDuration = `${dur}s`;
+    }
 
-    // Re-create lucide icons for dynamic badges if modified
     lucide.createIcons();
-
-    // Call loop again in 1 second
     setTimeout(clockLoop, 1000);
 }
 
 /* =========================================================================
-   2. THREE.JS 3D STRESS ORB
+   3. THREE.JS 3D STRESS ORB
    ========================================================================= */
 
 function initThreeJS() {
-    const container = document.getElementById('threejs-canvas-container');
+    const container = document.getElementById('threejs-dashboard-container');
     if (!container) return;
 
-    const w = container.clientWidth;
-    const h = container.clientHeight;
+    const w = container.clientWidth || 300;
+    const h = container.clientHeight || 300;
 
     // Scene
     const scene = new THREE.Scene();
@@ -300,17 +382,17 @@ function initThreeJS() {
     container.appendChild(renderer.domElement);
     state.visuals.three.renderer = renderer;
 
-    // Create 3D Orb Geometry
+    // Sphere Geometry
     const geometry = new THREE.SphereGeometry(2, 48, 48);
     state.visuals.three.geometry = geometry;
     state.visuals.three.originalPositions = geometry.attributes.position.clone();
 
-    // Shiny material with glowing properties
+    // Translucent Liquid Glass Material
     const material = new THREE.MeshPhongMaterial({
-        color: 0x00f0ff,
+        color: 0x00f3ff,
         emissive: 0x001a33,
         specular: 0xffffff,
-        shininess: 90,
+        shininess: 95,
         flatShading: false,
         transparent: true,
         opacity: 0.85,
@@ -322,39 +404,77 @@ function initThreeJS() {
     scene.add(orb);
     state.visuals.three.orb = orb;
 
-    // High Contrast Neon Lights Setup
-    const ambientLight = new THREE.AmbientLight(0x0a0c16, 1.5);
+    // Floating particles (dust) in a sphere surrounding the orb
+    const particleCount = 150;
+    const particleGeo = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+    const colors = new Float32Array(particleCount * 3);
+
+    for (let i = 0; i < particleCount * 3; i += 3) {
+        const u = Math.random();
+        const v = Math.random();
+        const theta = u * 2.0 * Math.PI;
+        const phi = Math.acos(2.0 * v - 1.0);
+        const r = 2.6 + Math.random() * 2.2;
+        
+        positions[i] = r * Math.sin(phi) * Math.cos(theta);
+        positions[i+1] = r * Math.sin(phi) * Math.sin(theta);
+        positions[i+2] = r * Math.cos(phi);
+
+        // Random cyan/purple color mix
+        const isCyan = Math.random() > 0.4;
+        colors[i] = isCyan ? 0.0 : 0.74; // R
+        colors[i+1] = isCyan ? 0.94 : 0.0; // G
+        colors[i+2] = isCyan ? 1.0 : 1.0; // B
+    }
+
+    particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    particleGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    const particleMat = new THREE.PointsMaterial({
+        size: 0.06,
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.75,
+        blending: THREE.AdditiveBlending
+    });
+
+    const particleSystem = new THREE.Points(particleGeo, particleMat);
+    scene.add(particleSystem);
+    state.visuals.three.particles = particleSystem;
+
+    // Neon Lights Setup
+    const ambientLight = new THREE.AmbientLight(0x0a0c16, 1.6);
     scene.add(ambientLight);
 
-    // Neon Cyan light from bottom-left
     const lightCyan = new THREE.PointLight(0x00f0ff, 4, 30);
     lightCyan.position.set(-5, -3, 3);
     scene.add(lightCyan);
     state.visuals.three.lightCyan = lightCyan;
 
-    // Neon Pink light from top-right
     const lightPink = new THREE.PointLight(0xff0055, 4, 30);
     lightPink.position.set(5, 5, 3);
     scene.add(lightPink);
     state.visuals.three.lightPink = lightPink;
 
-    // Direct front light
-    const frontLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    const frontLight = new THREE.DirectionalLight(0xffffff, 0.6);
     frontLight.position.set(0, 0, 10);
     scene.add(frontLight);
 
     state.visuals.three.clock = new THREE.Clock();
 
-    // Resize Handler
+    // Handle global window resize
     window.addEventListener('resize', () => {
-        const width = container.clientWidth;
-        const height = container.clientHeight;
-        camera.aspect = width / height;
-        camera.updateProjectionMatrix();
-        renderer.setSize(width, height);
+        const parent = renderer.domElement.parentElement;
+        if (parent) {
+            const width = parent.clientWidth;
+            const height = parent.clientHeight;
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+        }
     });
 
-    // Start rendering frame loop
     animateThreeJS();
 }
 
@@ -368,16 +488,14 @@ function animateThreeJS() {
     const stress = state.simulation.stressScore;
     const hr = state.simulation.currentHR;
 
-    // 1. Map biometric data to 3D properties
-    // Stress levels dictate displacement/chaos intensity
-    let distortionScale = 0.02 + (stress / 100) * 0.15; // Mild waves at 0, spike spikes at 100
-    let frequencyScale = 1.5 + (stress / 100) * 3.5;    // Higher frequency waves when stressed
+    // Map biometric variables to 3D deformation variables
+    let distortionScale = 0.025 + (stress / 100) * 0.16;
+    let frequencyScale = 1.4 + (stress / 100) * 3.6;
     
-    // Heart rate dictates rotation & pulsation frequency
-    let pulseFrequency = (hr / 60) * 2.5; // Heartbeat pulsing cycles
-    let rotationSpeed = 0.15 + (hr / 60) * 0.5;
+    let pulseFrequency = (hr / 60) * 2.6;
+    let rotationSpeed = 0.12 + (hr / 60) * 0.45;
 
-    // 2. Vertex Displacement (Liquid Morpher Simulation)
+    // Vertex displacement liquid wave
     const position = t.geometry.attributes.position;
     const original = t.originalPositions;
     const count = position.count;
@@ -387,81 +505,81 @@ function animateThreeJS() {
         let oy = original.getY(i);
         let oz = original.getZ(i);
 
-        // Calculate unit vector direction (spherical direction)
         let r = Math.sqrt(ox*ox + oy*oy + oz*oz);
         let nx = ox / r;
         let ny = oy / r;
         let nz = oz / r;
 
-        // Wave formulas based on spatial positions and elapsed time
         let wave = Math.sin(nx * frequencyScale + time * pulseFrequency) * 
                    Math.cos(ny * frequencyScale + time * pulseFrequency) * 
                    Math.sin(nz * frequencyScale + time * pulseFrequency);
                    
-        // Combined second-harmonic ripple
-        let ripple = Math.cos((nx + ny + nz) * 2 + time * 1.5) * 0.4;
+        let ripple = Math.cos((nx + ny + nz) * 2.2 + time * 1.6) * 0.35;
         
         let displacement = 1.0 + (wave + ripple) * distortionScale;
 
-        // Apply deformation
         position.setXYZ(i, ox * displacement, oy * displacement, oz * displacement);
     }
     position.needsUpdate = true;
     t.geometry.computeVertexNormals();
 
-    // 3. Size Pulsation (sync with breathing or heartbeat)
+    // Scale pulsation based on paced breathing or simulated pulse
     let sizePulse = 1.0;
     if (state.breathing.active && state.breathing.stageStartTime) {
-        // Compute breathing scale mathematically to prevent layout thrashing
         const elapsed = (Date.now() - state.breathing.stageStartTime) / 1000;
         const progress = Math.min(1.0, elapsed / state.breathing.stageDuration);
         
-        // Easing function: easeInOutQuad
+        // easeInOutQuad
         const ease = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
         
         const scaleRange = state.breathing.targetScale - state.breathing.startScale;
         const currentScale = state.breathing.startScale + scaleRange * ease;
         
-        // Map currentScale (0.65 to 1.4) to sizePulse comfortably
-        sizePulse = 0.7 + (currentScale - 0.7) * 0.7;
+        sizePulse = 0.65 + (currentScale - 0.65) * 0.75;
     } else {
-        // Otherwise, pulse gently in rhythm with simulated heart rate
-        sizePulse = 1.0 + Math.sin(time * pulseFrequency) * 0.03;
+        sizePulse = 1.0 + Math.sin(time * pulseFrequency) * 0.025;
     }
     t.orb.scale.set(sizePulse, sizePulse, sizePulse);
 
-    // 4. Rotate Orb
+    // Rotate Orb
     t.orb.rotation.y = time * rotationSpeed;
     t.orb.rotation.x = time * (rotationSpeed * 0.5);
 
-    // 5. High Contrast Color Shifting based on Stress
-    // Calm (Cyan: 0x00f0ff) -> Balanced/Alert (Purple: 0xbd00ff) -> Stress (Hot Pink: 0xff0055)
-    let targetColor = new THREE.Color(0x00f0ff);
+    // Orbiting particle system
+    if (t.particles) {
+        t.particles.rotation.y = time * 0.06;
+        t.particles.rotation.x = time * 0.02;
+    }
+
+    // Material color transitions
+    let targetColor = new THREE.Color(0x00f3ff);
     let targetEmissive = new THREE.Color(0x00152b);
 
-    if (stress < 35) {
-        // Interpolate within calm (Cyanish hues)
-        targetColor.setHex(0x00f0ff);
+    if (state.breathing.active) {
+        // Soothing green/teal visual feedback when breathing
+        targetColor.setHex(0x00ff88);
+        targetEmissive.setHex(0x002410);
+        t.lightCyan.color.setHex(0x00ff88);
+        t.lightPink.color.setHex(0x00f0ff);
+    } else if (stress < 35) {
+        targetColor.setHex(0x00f3ff);
         targetEmissive.setHex(0x00152b);
         t.lightCyan.color.setHex(0x00f0ff);
         t.lightPink.color.setHex(0xbd00ff);
     } else if (stress < 70) {
-        // Purple transition
         const ratio = (stress - 35) / 35;
-        targetColor.lerpColors(new THREE.Color(0x00f0ff), new THREE.Color(0xbd00ff), ratio);
-        targetEmissive.lerpColors(new THREE.Color(0x00152b), new THREE.Color(0x1a0033), ratio);
+        targetColor.lerpColors(new THREE.Color(0x00f3ff), new THREE.Color(0xbd00ff), ratio);
+        targetEmissive.lerpColors(new THREE.Color(0x00152b), new THREE.Color(0x1b0033), ratio);
         t.lightCyan.color.setHex(0x00f0ff);
         t.lightPink.color.setHex(0xff0055);
     } else {
-        // Pink/Red transition
         const ratio = Math.min(1.0, (stress - 70) / 30);
         targetColor.lerpColors(new THREE.Color(0xbd00ff), new THREE.Color(0xff0055), ratio);
-        targetEmissive.lerpColors(new THREE.Color(0x1a0033), new THREE.Color(0x33000b), ratio);
+        targetEmissive.lerpColors(new THREE.Color(0x1a0033), new THREE.Color(0x38000b), ratio);
         t.lightCyan.color.setHex(0xbd00ff);
         t.lightPink.color.setHex(0xff0055);
     }
 
-    // Smooth lerp material color
     t.material.color.lerp(targetColor, 0.05);
     t.material.emissive.lerp(targetEmissive, 0.05);
 
@@ -469,16 +587,15 @@ function animateThreeJS() {
 }
 
 /* =========================================================================
-   3. ECG LIVE WAVEFORM SCANNER
+   4. ECG LIVE WAVEFORM SCANNER
    ========================================================================= */
 
 function initWaveform() {
     const canvas = document.getElementById('live-waveform-canvas');
     if (!canvas) return;
     
-    // Fit to container dimensions
-    canvas.width = canvas.parentElement.clientWidth;
-    canvas.height = canvas.parentElement.clientHeight;
+    canvas.width = canvas.parentElement.clientWidth || 300;
+    canvas.height = canvas.parentElement.clientHeight || 90;
     
     state.visuals.waveform.canvas = canvas;
     state.visuals.waveform.ctx = canvas.getContext('2d');
@@ -502,7 +619,7 @@ function drawWaveform() {
     
     ctx.clearRect(0, 0, w, h);
     
-    // Draw background grid lines (cyberpunk mesh design)
+    // Cyberpunk grid mesh background
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.02)';
     ctx.lineWidth = 1;
     for (let x = 0; x < w; x += 20) {
@@ -518,91 +635,80 @@ function drawWaveform() {
         ctx.stroke();
     }
     
-    // Waveform rendering variables
     const hr = state.simulation.currentHR;
     const stress = state.simulation.stressScore;
     
-    state.visuals.waveform.offset += 2.5 + (hr / 60) * 1.5; // Scroll speed relative to HR
+    state.visuals.waveform.offset += 2.2 + (hr / 60) * 1.6;
     if (state.visuals.waveform.offset > w) {
         state.visuals.waveform.offset = 0;
     }
     
     const offset = state.visuals.waveform.offset;
     
-    // Determine gradient line color based on stress
     let strokeGrad = ctx.createLinearGradient(0, 0, w, 0);
     let colorStart = 'rgba(0, 240, 255, 0.8)';
     let colorEnd = 'rgba(0, 240, 255, 0.8)';
     
     if (stress < 35) {
-        colorStart = 'rgba(0, 243, 255, 0.8)';
-        colorEnd = 'rgba(0, 255, 136, 0.4)';
+        colorStart = 'rgba(0, 255, 136, 0.9)';
+        colorEnd = 'rgba(0, 240, 255, 0.4)';
     } else if (stress < 70) {
         colorStart = 'rgba(189, 0, 255, 0.8)';
-        colorEnd = 'rgba(0, 243, 255, 0.4)';
+        colorEnd = 'rgba(0, 240, 255, 0.4)';
     } else {
-        colorStart = 'rgba(255, 0, 85, 0.9)';
+        colorStart = 'rgba(255, 0, 85, 0.95)';
         colorEnd = 'rgba(189, 0, 255, 0.4)';
     }
     
-    strokeGrad.addColorStop(Math.max(0, (offset - 40) / w), 'rgba(255,255,255,0.05)');
+    strokeGrad.addColorStop(Math.max(0, (offset - 40) / w), 'rgba(255,255,255,0.04)');
     strokeGrad.addColorStop(offset / w, colorStart);
     strokeGrad.addColorStop(Math.min(1.0, (offset + 10) / w), colorEnd);
-    strokeGrad.addColorStop(Math.min(1.0, (offset + 60) / w), 'rgba(255,255,255,0.05)');
+    strokeGrad.addColorStop(Math.min(1.0, (offset + 60) / w), 'rgba(255,255,255,0.04)');
     
-    // Draw the ECG path
     ctx.beginPath();
     ctx.strokeStyle = strokeGrad;
     ctx.lineWidth = 2.5;
     ctx.shadowBlur = 8;
-    ctx.shadowColor = stress > 70 ? 'rgba(255, 0, 85, 0.5)' : 'rgba(0, 240, 255, 0.5)';
+    ctx.shadowColor = stress > 70 ? 'rgba(255, 0, 85, 0.4)' : 'rgba(0, 240, 255, 0.4)';
     
     const midY = h / 2;
-    const beatPeriod = 200; // Pixel period between beats
+    const beatPeriod = 200;
     
     ctx.moveTo(0, midY);
     for (let x = 0; x < w; x++) {
-        // Calculate dynamic relative coordinate
         const relativeX = (x + offset) % beatPeriod;
         let yVal = midY;
         
-        // Simulating ECG waves: P, Q, R, S, T complex
-        // QRS spike is sharp, T wave is broad
+        // ECG wave simulation components: P-Q-R-S-T
         if (relativeX > 20 && relativeX < 35) {
-            // P Wave
             yVal = midY - Math.sin((relativeX - 20) / 15 * Math.PI) * 4;
         } else if (relativeX >= 40 && relativeX < 45) {
-            // Q Wave
             yVal = midY + (relativeX - 40) * 2.5;
         } else if (relativeX >= 45 && relativeX < 53) {
-            // R Spike (massive sharp contraction)
             const peakPos = 49;
             const dist = Math.abs(relativeX - peakPos);
-            yVal = midY - 35 * (1 - dist / 4);
+            yVal = midY - 32 * (1 - dist / 4);
         } else if (relativeX >= 53 && relativeX < 59) {
-            // S Drop
-            yVal = midY + 12 * (1 - Math.abs(relativeX - 56) / 3);
+            yVal = midY + 11 * (1 - Math.abs(relativeX - 56) / 3);
         } else if (relativeX >= 70 && relativeX < 95) {
-            // T Wave (ventricular repolarization)
-            yVal = midY - Math.sin((relativeX - 70) / 25 * Math.PI) * 8;
+            yVal = midY - Math.sin((relativeX - 70) / 25 * Math.PI) * 7;
         }
         
         ctx.lineTo(x, yVal);
     }
     
     ctx.stroke();
-    ctx.shadowBlur = 0; // Reset
+    ctx.shadowBlur = 0;
 }
 
 /* =========================================================================
-   4. INTERACTIVE ANALYTICS CHARTS (DAILY STRESS TREND)
+   5. INTERACTIVE ANALYTICS CHARTS (DAILY STRESS TREND)
    ========================================================================= */
 
 function initCharts() {
     const ctx = document.getElementById('stress-trend-chart');
     if (!ctx) return;
     
-    // Gradient fill setup
     const chartCtx = ctx.getContext('2d');
     const chartGrad = chartCtx.createLinearGradient(0, 0, 0, 200);
     chartGrad.addColorStop(0, 'rgba(0, 243, 255, 0.25)');
@@ -673,18 +779,16 @@ function initCharts() {
         }
     });
 
-    // Periodic chart update loop to append live simulator score to the chart
+    // Chart live update loop
     setInterval(() => {
         if (!state.visuals.chart) return;
         
         const chart = state.visuals.chart;
         const currentScore = state.simulation.stressScore;
         
-        // Update the last data point ("Now") with the current score
         const dataLength = chart.data.datasets[0].data.length;
         chart.data.datasets[0].data[dataLength - 1] = currentScore;
         
-        // Dynamically adjust colors of points/lines based on current stress
         if (currentScore > 75) {
             chart.data.datasets[0].borderColor = '#ff0055';
             chart.data.datasets[0].pointBackgroundColor = '#ff0055';
@@ -696,81 +800,111 @@ function initCharts() {
             chart.data.datasets[0].pointBackgroundColor = '#00f3ff';
         }
         
-        chart.update('none'); // Update without full redraw animations
+        chart.update('none');
     }, 2000);
 }
 
 /* =========================================================================
-   5. CBT BREATHING LAB & EXERCISE FLOW
+   6. CBT BREATHING LAB & AUDIO SYNTHESIS
    ========================================================================= */
 
+function playPacedChime(frequency = 440, type = 'sine', duration = 0.8) {
+    const audioToggle = document.getElementById('audio-toggle');
+    if (audioToggle && !audioToggle.checked) return;
+
+    try {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.type = type;
+        osc.frequency.setValueAtTime(frequency, audioCtx.currentTime);
+
+        // Soothing envelope
+        gain.gain.setValueAtTime(0, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.12, audioCtx.currentTime + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+    } catch (err) {
+        console.warn("Chime synthesis error:", err);
+    }
+}
+
 function initBreathing() {
-    const selectorButtons = document.querySelectorAll('.exercise-btn');
+    const selectorOptions = document.querySelectorAll('.exercise-option');
     const controlBtn = document.getElementById('btn-breathing-control');
     const durationTimer = document.getElementById('breath-timer');
-    const stageIndicator = document.getElementById('breathing-stage');
+    const stageIndicator = document.getElementById('breathing-lab-stage');
     const instructionPrompt = document.getElementById('breathing-prompt');
     const circleOuter = document.getElementById('breath-circle-outer');
     const circleInner = document.getElementById('breath-circle-inner');
 
-    // Exercise parameter lists
     const profiles = {
         box: {
             name: "Box Breathing",
             steps: [
-                { stage: 'Inhale', duration: 4, prompt: 'Breathe in slowly through your nose...', scale: 1.35 },
-                { stage: 'Hold', duration: 4, prompt: 'Suspend your breath, relax your jaw...', scale: 1.35 },
-                { stage: 'Exhale', duration: 4, prompt: 'Let it go gently through your mouth...', scale: 0.7 },
-                { stage: 'Hold', duration: 4, prompt: 'Hold empty before next cycle...', scale: 0.7 }
+                { stage: 'Inhale', duration: 4, prompt: 'Breathe in slowly through your nose...', scale: 1.35, freq: 587.33 }, // D5
+                { stage: 'Hold', duration: 4, prompt: 'Suspend your breath, relax your jaw...', scale: 1.35, freq: 440.00 }, // A4
+                { stage: 'Exhale', duration: 4, prompt: 'Let it go gently through your mouth...', scale: 0.7, freq: 349.23 },  // F4
+                { stage: 'Hold', duration: 4, prompt: 'Hold empty before next cycle...', scale: 0.7, freq: 293.66 }       // D4
             ]
         },
         relax: {
             name: "4-7-8 Relaxing Breath",
             steps: [
-                { stage: 'Inhale', duration: 4, prompt: 'Inhale silently through the nose...', scale: 1.4 },
-                { stage: 'Hold', duration: 7, prompt: 'Retain the oxygen in your lungs...', scale: 1.4 },
-                { stage: 'Exhale', duration: 8, prompt: 'Woosh out completely through your mouth...', scale: 0.65 }
+                { stage: 'Inhale', duration: 4, prompt: 'Inhale silently through the nose...', scale: 1.4, freq: 587.33 },
+                { stage: 'Hold', duration: 7, prompt: 'Retain the oxygen in your lungs...', scale: 1.4, freq: 440.00 },
+                { stage: 'Exhale', duration: 8, prompt: 'Woosh out completely through your mouth...', scale: 0.65, freq: 349.23 }
             ]
         },
         scan: {
             name: "3D Body Scan",
             steps: [
-                { stage: 'Head Focus', duration: 5, prompt: 'Bring awareness to forehead, neck, and jaw. Release tension.', scale: 1.2 },
-                { stage: 'Chest & Shoulders', duration: 5, prompt: 'Drop your shoulders. Feel chest expand and release.', scale: 1.25 },
-                { stage: 'Core & Breath', duration: 5, prompt: 'Feel your belly rise and fall. Breathe from diaphragm.', scale: 1.3 },
-                { stage: 'Grounding Limbs', duration: 5, prompt: 'Relax your legs, hands, and feet. Let go completely.', scale: 1.0 }
+                { stage: 'Head Focus', duration: 5, prompt: 'Bring awareness to forehead, neck, and jaw. Release tension.', scale: 1.2, freq: 523.25 }, // C5
+                { stage: 'Chest & Shoulders', duration: 5, prompt: 'Drop your shoulders. Feel chest expand and release.', scale: 1.25, freq: 440.00 },
+                { stage: 'Core & Breath', duration: 5, prompt: 'Feel your belly rise and fall. Breathe from diaphragm.', scale: 1.3, freq: 349.23 },
+                { stage: 'Grounding Limbs', duration: 5, prompt: 'Relax your legs, hands, and feet. Let go completely.', scale: 1.0, freq: 261.63 } // C4
             ]
         }
     };
 
-    // Swap Exercise Selector Action
-    selectorButtons.forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            if (state.breathing.active) return; // Prevent swap while active
+    selectorOptions.forEach(opt => {
+        opt.addEventListener('click', (e) => {
+            if (state.breathing.active) return;
             
-            selectorButtons.forEach(b => b.classList.remove('active'));
-            e.target.classList.add('active');
+            selectorOptions.forEach(b => b.classList.remove('active'));
+            const target = e.target.closest('.exercise-option');
+            target.classList.add('active');
             
-            state.breathing.type = e.target.getAttribute('data-type');
+            state.breathing.type = target.getAttribute('data-type');
             
-            // Adjust visual colors of circles based on active type
             const activeProfile = profiles[state.breathing.type];
             if (state.breathing.type === 'scan') {
                 circleInner.style.border = '2px solid var(--neon-purple)';
-                circleInner.style.background = 'radial-gradient(circle, rgba(189, 0, 255, 0.3) 0%, rgba(189, 0, 255, 0.02) 70%)';
+                circleInner.style.background = 'radial-gradient(circle, rgba(189, 0, 255, 0.2) 0%, rgba(189, 0, 255, 0) 70%)';
                 circleInner.style.boxShadow = 'var(--purple-glow)';
             } else {
                 circleInner.style.border = '2px solid var(--neon-green)';
-                circleInner.style.background = 'radial-gradient(circle, rgba(0, 255, 136, 0.3) 0%, rgba(0, 255, 136, 0.02) 70%)';
+                circleInner.style.background = 'radial-gradient(circle, rgba(0, 255, 136, 0.2) 0%, rgba(0, 255, 136, 0) 70%)';
                 circleInner.style.boxShadow = 'var(--green-glow)';
             }
             
             stageIndicator.textContent = "Ready";
-            instructionPrompt.textContent = `Paced to: ${activeProfile.name}. Click start.`;
+            instructionPrompt.textContent = `Paced to: ${activeProfile.name}. Press start to begin.`;
         });
     });
 
-    // Control Trigger Action
     controlBtn.addEventListener('click', () => {
         if (state.breathing.active) {
             stopBreathing();
@@ -785,8 +919,9 @@ function initBreathing() {
         controlBtn.classList.remove('btn-primary');
         controlBtn.classList.add('btn-secondary');
         
-        // Feed deep breathing signal into biometric engine
-        document.getElementById('slider-breathing').value = 100;
+        // Set breathing simulation variables
+        const sliderBreathing = document.getElementById('slider-breathing');
+        if (sliderBreathing) sliderBreathing.value = 100;
         state.simulation.breathing = 100;
         calculateTelemetry();
         
@@ -801,14 +936,16 @@ function initBreathing() {
             state.breathing.stage = currentStep.stage;
             timeRemaining = currentStep.duration;
             
-            // Set state variables for JS interpolation
             state.breathing.stageStartTime = Date.now();
-            state.breathing.stageDuration = currentStep.duration; // in seconds
+            state.breathing.stageDuration = currentStep.duration;
             let prevIndex = (stepIndex - 1 + profile.steps.length) % profile.steps.length;
             state.breathing.startScale = stepIndex === 0 ? 1.0 : profile.steps[prevIndex].scale;
             state.breathing.targetScale = currentStep.scale;
             
-            // Update UI Labels
+            // Audio cue trigger
+            playPacedChime(currentStep.freq, 'sine', 1.0);
+            
+            // Update labels
             stageIndicator.textContent = currentStep.stage.toUpperCase();
             if (state.breathing.type === 'scan') {
                 stageIndicator.style.color = 'var(--neon-purple)';
@@ -819,11 +956,9 @@ function initBreathing() {
             instructionPrompt.textContent = currentStep.prompt;
             durationTimer.textContent = timeRemaining;
             
-            // Trigger 3D css transitions on the circles
             circleInner.style.transform = `scale(${currentStep.scale})`;
             circleOuter.style.transform = `scale(${currentStep.scale + 0.15})`;
             
-            // Transition timing transition matching step duration
             circleInner.style.transition = `transform ${currentStep.duration}s cubic-bezier(0.4, 0, 0.2, 1)`;
             circleOuter.style.transition = `transform ${currentStep.duration}s cubic-bezier(0.4, 0, 0.2, 1)`;
 
@@ -835,7 +970,6 @@ function initBreathing() {
                 
                 if (timeRemaining <= 0) {
                     clearInterval(state.breathing.intervalId);
-                    // Cycle to next step index
                     stepIndex = (stepIndex + 1) % profile.steps.length;
                     runStep();
                 }
@@ -849,12 +983,12 @@ function initBreathing() {
         state.breathing.active = false;
         clearInterval(state.breathing.intervalId);
         
-        controlBtn.textContent = "Start Breathing";
+        controlBtn.textContent = "Start Breathing Session";
         controlBtn.classList.remove('btn-secondary');
         controlBtn.classList.add('btn-primary');
         
-        // Remove deep breathing simulation offset
-        document.getElementById('slider-breathing').value = 0;
+        const sliderBreathing = document.getElementById('slider-breathing');
+        if (sliderBreathing) sliderBreathing.value = 0;
         state.simulation.breathing = 0;
         calculateTelemetry();
         
@@ -863,7 +997,6 @@ function initBreathing() {
         instructionPrompt.textContent = "Session ended. Breathe normally.";
         durationTimer.textContent = "00";
         
-        // Reset scales
         circleInner.style.transform = 'scale(1)';
         circleOuter.style.transform = 'scale(1)';
         circleInner.style.transition = 'transform 0.4s ease';
@@ -872,37 +1005,37 @@ function initBreathing() {
 }
 
 /* =========================================================================
-   6. STRESS JOURNAL & CBT AI RECONSTRUCTING COACH
+   7. STRESS JOURNAL & CBT RECONSTRUCTING TIMELINE
    ========================================================================= */
 
 function initJournal() {
     const journalText = document.getElementById('journal-text');
-    const moodTags = document.querySelectorAll('.mood-tag');
+    const moodTags = document.querySelectorAll('.mood-tags .mood-tag');
     const submitBtn = document.getElementById('btn-submit-journal');
     const aiCoachPanel = document.getElementById('ai-coach-panel');
     const distortionText = document.getElementById('cbt-distortion-text');
     const reframeText = document.getElementById('cbt-reframe-text');
 
-    // Select Mood Tag
+    // Mood Tag Click selectors
     moodTags.forEach(tag => {
         tag.addEventListener('click', (e) => {
             moodTags.forEach(t => t.classList.remove('active'));
             e.target.classList.add('active');
             state.journal.mood = e.target.getAttribute('data-mood');
             
-            // Adjust simulation slightly based on selected mood
+            // Influence biometric simulator based on tagged mood
+            const sliderAnxiety = document.getElementById('slider-anxiety');
             if (state.journal.mood === 'anxious' || state.journal.mood === 'overwhelmed') {
                 state.simulation.anxiety = Math.max(state.simulation.anxiety, 65);
-                document.getElementById('slider-anxiety').value = state.simulation.anxiety;
+                if (sliderAnxiety) sliderAnxiety.value = state.simulation.anxiety;
             } else if (state.journal.mood === 'calm') {
                 state.simulation.anxiety = Math.min(state.simulation.anxiety, 20);
-                document.getElementById('slider-anxiety').value = state.simulation.anxiety;
+                if (sliderAnxiety) sliderAnxiety.value = state.simulation.anxiety;
             }
             calculateTelemetry();
         });
     });
 
-    // Submit Action & CBT parser
     submitBtn.addEventListener('click', () => {
         const text = journalText.value.trim().toLowerCase();
         
@@ -914,12 +1047,10 @@ function initJournal() {
         submitBtn.textContent = "Analyzing thoughts...";
         submitBtn.disabled = true;
 
-        // Simulate network / AI inference delay
         setTimeout(() => {
             let distortion = "General Stress Accumulation";
             let reframe = "Take a step back. Recognize that your current stress feels intense, but it is temporary. You are safe, and you can solve problems step-by-step.";
 
-            // Cognitive Distortions Rule Engine
             if (text.includes("never") || text.includes("always") || text.includes("nothing") || text.includes("everything") || text.includes("perfect")) {
                 distortion = "All-or-Nothing Thinking (Polarization)";
                 reframe = "You are looking at things in black-and-white categories. Reframe: 'Just because one thing is going poorly doesn't mean everything is ruined. There is grey area, and things are rarely entirely good or entirely bad.'";
@@ -937,45 +1068,270 @@ function initJournal() {
                 reframe = "You hold yourself entirely responsible for events outside your control. Reframe: 'You are only responsible for your own actions and reactions. List the other contributing variables to this situation and release control of them.'";
             }
 
-            // Display reframing response
+            // Display values on coach panel card
             distortionText.textContent = distortion;
             reframeText.textContent = reframe;
-            
             aiCoachPanel.classList.remove('hidden');
             
             submitBtn.textContent = "Analyze thoughts (AI)";
             submitBtn.disabled = false;
 
-            // Trigger minor stress spike when writing anxious logs to simulate state tracking,
-            // then let it settle as they read the reframes.
-            if (state.journal.mood === 'anxious' || state.journal.mood === 'overwhelmed') {
-                // Flash stress values briefly
-                const originalAnxiety = state.simulation.anxiety;
-                state.simulation.anxiety = Math.min(100, originalAnxiety + 15);
+            // Push to local timeline list
+            const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const dateStr = new Date().toLocaleDateString([], { month: 'short', day: 'numeric' });
+            
+            state.journal.logs.unshift({
+                text: journalText.value.trim(),
+                mood: state.journal.mood || "neutral",
+                distortion: distortion,
+                reframe: reframe,
+                time: timestamp,
+                date: dateStr
+            });
+
+            // Update UI timeline
+            renderJournalHistory();
+            
+            // Clear textarea
+            journalText.value = "";
+            moodTags.forEach(t => t.classList.remove('active'));
+            state.journal.mood = null;
+
+            // Trigger temporary stress spike representing writing/recalling the stress event
+            const originalAnxiety = state.simulation.anxiety;
+            state.simulation.anxiety = Math.min(100, originalAnxiety + 15);
+            calculateTelemetry();
+            
+            // Slowly resolve the stress spike after 10 seconds representing cognitive restructuring
+            setTimeout(() => {
+                state.simulation.anxiety = originalAnxiety;
                 calculateTelemetry();
-                
-                // Add tag point on chart if possible
-                if (state.visuals.chart) {
-                    const chart = state.visuals.chart;
-                    const len = chart.data.datasets[0].data.length;
-                    
-                    // Highlight the point on chart as a marker
-                    chart.data.labels[len-1] = "Journaled";
-                    chart.update();
-                }
-                
-                // Slowly cool down anxiety after 10 seconds (representing therapeutic relief)
-                setTimeout(() => {
-                    state.simulation.anxiety = originalAnxiety;
-                    calculateTelemetry();
-                }, 10000);
-            }
+            }, 10000);
+            
         }, 1200);
     });
 }
 
+function renderJournalHistory() {
+    const timeline = document.getElementById('journal-history-timeline');
+    if (!timeline) return;
+
+    if (state.journal.logs.length === 0) {
+        timeline.innerHTML = `
+            <div class="empty-timeline-message">
+                <i data-lucide="book-open" class="empty-icon"></i>
+                <p>No journal entries logged yet. Your cognitive reframing entries will appear here.</p>
+            </div>
+        `;
+        lucide.createIcons();
+        return;
+    }
+
+    timeline.innerHTML = state.journal.logs.map((log) => `
+        <div class="timeline-item">
+            <div class="timeline-item-meta">
+                <span class="timeline-item-date">${log.date} @ ${log.time}</span>
+                <span class="timeline-item-mood ${log.mood}">${log.mood.toUpperCase()}</span>
+            </div>
+            <div class="timeline-item-thought">"${log.text}"</div>
+            <div class="timeline-item-cbt">
+                <div class="timeline-item-distortion">${log.distortion}</div>
+                <div class="timeline-item-reframe"><strong>Reframe:</strong> ${log.reframe}</div>
+            </div>
+        </div>
+    `).join('');
+
+    lucide.createIcons();
+}
+
 /* =========================================================================
-   7. 3D CARD PERSPECTIVE TILT TRACKING
+   8. WEEKLY REPORT RECALCULATION & TRIGGER METRICS
+   ========================================================================= */
+
+function updateWeeklyReport() {
+    const s = state.simulation;
+    const logs = state.journal.logs;
+
+    // Calculate dynamic stats
+    let avgStress = Math.round(s.stressScore * 0.7 + 35);
+    if (logs.length > 0) {
+        avgStress = Math.max(10, avgStress - logs.length * 4);
+    }
+
+    let avgHRV = Math.round(s.currentHRV * 0.85 + 40);
+    if (logs.length > 0) {
+        avgHRV = Math.min(130, avgHRV + logs.length * 3);
+    }
+
+    let avgHR = Math.round(s.currentHR * 0.8 + 12);
+    let mindfulMins = 12 + logs.length * 4;
+
+    // Write values
+    const weeklyStressText = document.getElementById('insight-weekly-stress');
+    const weeklyHrvText = document.getElementById('insight-weekly-hrv');
+    const weeklyHrText = document.getElementById('insight-weekly-hr');
+    const weeklyBreathingText = document.getElementById('insight-weekly-breathing');
+
+    if (weeklyStressText) weeklyStressText.textContent = avgStress;
+    if (weeklyHrvText) weeklyHrvText.textContent = avgHRV;
+    if (weeklyHrText) weeklyHrText.textContent = Math.round(avgHR);
+    if (weeklyBreathingText) weeklyBreathingText.textContent = mindfulMins;
+
+    // Update low/mod/high status badge
+    const badge = document.querySelector('.insight-stat-card .stat-label-badge');
+    if (badge) {
+        if (avgStress < 35) {
+            badge.textContent = "Optimized";
+            badge.className = "stat-label-badge low-stress";
+            badge.style.backgroundColor = "rgba(0, 255, 136, 0.1)";
+            badge.style.color = "var(--neon-green)";
+        } else if (avgStress < 60) {
+            badge.textContent = "Moderate";
+            badge.className = "stat-label-badge alert-stress";
+            badge.style.backgroundColor = "rgba(0, 243, 255, 0.1)";
+            badge.style.color = "var(--neon-cyan)";
+        } else {
+            badge.textContent = "Elevated";
+            badge.className = "stat-label-badge high-stress";
+            badge.style.backgroundColor = "rgba(255, 0, 85, 0.1)";
+            badge.style.color = "var(--neon-pink)";
+        }
+    }
+
+    // Render Stress Triggers progress bars list
+    const triggersContainer = document.getElementById('triggers-list-container');
+    if (triggersContainer) {
+        const triggerData = [
+            { label: "Mental Anxiety & Stressors", val: s.anxiety, class: "anxiety" },
+            { label: "Caffeine & Stimulants", val: s.caffeine, class: "caffeine" },
+            { label: "Physical Exertion & Fatigue", val: s.activity, class: "activity" },
+            { label: "Vagal nerve suppression (shallow breathing)", val: 100 - s.breathing, class: "breathing" }
+        ];
+
+        triggersContainer.innerHTML = triggerData.map(t => `
+            <div class="trigger-row">
+                <div class="trigger-meta">
+                    <span class="trigger-label">${t.label}</span>
+                    <span class="trigger-val">${t.val}%</span>
+                </div>
+                <div class="trigger-bar-track">
+                    <div class="trigger-bar-fill ${t.class}" style="width: ${t.val}%;"></div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    // Update zone distributions
+    let calmZone = Math.round(100 - s.anxiety);
+    let stressZone = Math.round(s.anxiety * 0.4);
+    let alertZone = Math.round(s.anxiety * 0.3 + s.activity * 0.3);
+    let balancedZone = Math.max(0, 100 - (calmZone + stressZone + alertZone));
+    
+    const sum = calmZone + stressZone + alertZone + balancedZone;
+    if (sum > 0) {
+        calmZone = Math.round((calmZone / sum) * 100);
+        balancedZone = Math.round((balancedZone / sum) * 100);
+        alertZone = Math.round((alertZone / sum) * 100);
+        stressZone = 100 - (calmZone + balancedZone + alertZone);
+    }
+
+    const pctCalm = document.getElementById('pct-zone-calm');
+    const fillCalm = document.getElementById('fill-zone-calm');
+    const pctBalanced = document.getElementById('pct-zone-balanced');
+    const fillBalanced = document.getElementById('fill-zone-balanced');
+    const pctAlert = document.getElementById('pct-zone-alert');
+    const fillAlert = document.getElementById('fill-zone-alert');
+    const pctStress = document.getElementById('pct-zone-stress');
+    const fillStress = document.getElementById('fill-zone-stress');
+
+    if (pctCalm) pctCalm.textContent = calmZone + "%";
+    if (fillCalm) fillCalm.style.width = calmZone + "%";
+    if (pctBalanced) pctBalanced.textContent = balancedZone + "%";
+    if (fillBalanced) fillBalanced.style.width = balancedZone + "%";
+    if (pctAlert) pctAlert.textContent = alertZone + "%";
+    if (fillAlert) fillAlert.style.width = alertZone + "%";
+    if (pctStress) pctStress.textContent = stressZone + "%";
+    if (fillStress) fillStress.style.width = stressZone + "%";
+
+    // CBT pattern mapping
+    let distortionPattern = "None Detected";
+    let distortionDesc = "Log your feelings in the Stress Journal to allow the AI to extract cognitive patterns and map behavioral trends.";
+    
+    if (logs.length > 0) {
+        const counts = {};
+        logs.forEach(log => {
+            counts[log.distortion] = (counts[log.distortion] || 0) + 1;
+        });
+        
+        let maxDist = "";
+        let maxCount = 0;
+        Object.keys(counts).forEach(k => {
+            if (counts[k] > maxCount) {
+                maxCount = counts[k];
+                maxDist = k;
+            }
+        });
+
+        distortionPattern = maxDist;
+        
+        if (maxDist.includes("All-or-Nothing")) {
+            distortionDesc = "You show a tendency to view events in rigid, black-and-white categories. This heightens autonomic response by treating minor setbacks as total failures.";
+        } else if (maxDist.includes("Catastrophizing")) {
+            distortionDesc = "You frequently project worst-case scenarios. This locks your amygdala into constant high-alert states, elevating resting heart rate.";
+        } else if (maxDist.includes("Emotional")) {
+            distortionDesc = "You treat subjective emotional spikes as absolute objective reality, confusing 'feeling overwhelmed' with 'being incapable'.";
+        } else if (maxDist.includes("Personalization")) {
+            distortionDesc = "You internalize blame for stress variables outside your agency, overloading cognitive capacity and suppressing daily HRV.";
+        } else {
+            distortionDesc = "General stressors are piling up. Continuous journaling will help map specific cognitive biases.";
+        }
+    }
+
+    const cbtPattern = document.getElementById('insight-cbt-distortion-pattern');
+    const cbtDesc = document.getElementById('insight-cbt-distortion-desc');
+    if (cbtPattern) cbtPattern.textContent = distortionPattern;
+    if (cbtDesc) cbtDesc.textContent = distortionDesc;
+
+    // Interventions mapping
+    const recsList = document.getElementById('insights-recommendations-list');
+    if (recsList) {
+        let recs = [
+            `Continue tracking your average autonomic score (${avgStress}) on the dashboard.`,
+            "Complete 5 minutes of Box Paced breathing when simulator levels cross 60%.",
+            "Keep journal descriptions specific to events rather than broad statements."
+        ];
+        if (distortionPattern.includes("All-or-Nothing")) {
+            recs = [
+                "Practice identifying 'grey areas' in daily stressors (e.g. rate outcomes from 1-10 instead of pass/fail).",
+                "Do a 4-7-8 Relaxing Breath session to downregulate emergency neural signals.",
+                "Log another journal entry focusing strictly on facts rather than generalizations."
+            ];
+        } else if (distortionPattern.includes("Catastrophizing")) {
+            recs = [
+                "Write down the realistic best-case scenario next to the worst-case, then estimate the mathematical odds of each.",
+                "Use the 3D Body Scan exercise to ground your focus inside physical sensations, breaking panic feedback loops.",
+                "Limit stimulant/caffeine intake to below 30% on the simulator slider."
+            ];
+        } else if (distortionPattern.includes("Emotional")) {
+            recs = [
+                "Remind yourself: 'My anxiety is a wave of adrenaline, not a factual report on my life situation.'",
+                "Do Box breathing specifically to physically lower heart rate when emotional intensity spikes.",
+                "Review reframes from past entries in the history panel."
+            ];
+        }
+
+        recsList.innerHTML = recs.map((r, i) => {
+            const colors = ['text-cyan', 'text-green', 'text-purple'];
+            const icons = ['check-circle', 'wind', 'edit-3'];
+            return `<li><i data-lucide="${icons[i]}" class="li-icon ${colors[i]}"></i> ${r}</li>`;
+        }).join('');
+
+        lucide.createIcons();
+    }
+}
+
+/* =========================================================================
+   9. 3D CARD PERSPECTIVE TILT TRACKING
    ========================================================================= */
 
 function init3DTilts() {
@@ -984,30 +1340,24 @@ function init3DTilts() {
     cards.forEach(card => {
         card.addEventListener('mousemove', (e) => {
             const rect = card.getBoundingClientRect();
-            const x = e.clientX - rect.left; // Mouse position inside card
+            const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
             
             const cardWidth = rect.width;
             const cardHeight = rect.height;
             
-            // Convert to offset ranges from -0.5 to 0.5
             const xPercent = (x / cardWidth) - 0.5;
             const yPercent = (y / cardHeight) - 0.5;
             
-            // Scale to rotation angles (tilt degrees)
-            const rotateX = -yPercent * 12; // Cap tilt at +-6 degrees
+            const rotateX = -yPercent * 12;
             const rotateY = xPercent * 12;
             
-            // Adjust card styling dynamically
             card.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg) translateY(-4px)`;
             card.style.boxShadow = `0 20px 40px rgba(0, 0, 0, 0.45), 0 0 20px rgba(0, 240, 255, 0.05)`;
-            
-            // Subtle shifting of border brightness
             card.style.borderColor = `rgba(255, 255, 255, ${0.08 + Math.abs(xPercent) * 0.15})`;
         });
         
         card.addEventListener('mouseleave', () => {
-            // Reset transforms smoothly
             card.style.transform = 'rotateX(0deg) rotateY(0deg) translateY(0)';
             card.style.boxShadow = 'none';
             card.style.borderColor = 'var(--border-color)';
@@ -1015,7 +1365,6 @@ function init3DTilts() {
         });
         
         card.addEventListener('mouseenter', () => {
-            // Remove transitions briefly during move for fast response
             card.style.transition = 'transform 0.08s ease, box-shadow 0.3s ease, border-color 0.3s ease';
         });
     });

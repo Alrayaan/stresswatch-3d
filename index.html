@@ -74,219 +74,429 @@
                 </div>
             </header>
 
-            <!-- Dashboard Grid Layout -->
-            <div class="dashboard-grid">
+            <!-- Dynamic View Containers -->
+            <div class="views-container">
                 
-                <!-- COLUMN 1: Telemetry Simulator & Stats -->
-                <div class="grid-col col-left">
-                    
-                    <!-- Bio-Simulator Control Panel (3D Card) -->
-                    <section class="dashboard-card tilt-card" id="simulator-card">
+                <!-- 1. DASHBOARD VIEW -->
+                <div id="view-dashboard" class="app-view active">
+                    <div class="dashboard-grid-2col">
+                        <!-- Left Column: Controls & Metrics -->
+                        <div class="grid-col">
+                            <!-- Bio-Simulator Control Panel (3D Card) -->
+                            <section class="dashboard-card tilt-card" id="simulator-card">
+                                <div class="card-header">
+                                    <i data-lucide="cpu" class="neon-icon-cyan"></i>
+                                    <h3>Biometric Simulator</h3>
+                                </div>
+                                <p class="card-desc">Simulate physical and mental states in real time to feed heart telemetry into the AI engine.</p>
+                                
+                                <div class="simulator-sliders">
+                                    <div class="slider-group">
+                                        <div class="slider-info">
+                                            <label for="slider-anxiety">Mental Anxiety / Stressor</label>
+                                            <span class="slider-val" id="val-anxiety">Low</span>
+                                        </div>
+                                        <input type="range" id="slider-anxiety" min="0" max="100" value="25" class="neon-slider">
+                                    </div>
+                                    
+                                    <div class="slider-group">
+                                        <div class="slider-info">
+                                            <label for="slider-caffeine">Caffeine / Stimulants</label>
+                                            <span class="slider-val" id="val-caffeine">None</span>
+                                        </div>
+                                        <input type="range" id="slider-caffeine" min="0" max="100" value="10" class="neon-slider">
+                                    </div>
+
+                                    <div class="slider-group">
+                                        <div class="slider-info">
+                                            <label for="slider-activity">Physical Activity Level</label>
+                                            <span class="slider-val" id="val-activity">Resting</span>
+                                        </div>
+                                        <input type="range" id="slider-activity" min="0" max="100" value="15" class="neon-slider">
+                                    </div>
+
+                                    <div class="slider-group">
+                                        <div class="slider-info">
+                                            <label for="slider-breathing">Deep Paced Breathing</label>
+                                            <span class="slider-val" id="val-breathing">No</span>
+                                        </div>
+                                        <input type="range" id="slider-breathing" min="0" max="100" value="0" class="neon-slider">
+                                    </div>
+                                </div>
+
+                                <div class="simulator-actions">
+                                    <button class="btn btn-secondary btn-glow" id="btn-reset-sim">Reset to Normal</button>
+                                    <button class="btn btn-primary btn-glow" id="btn-stress-spike">Simulate Panic Attack</button>
+                                </div>
+                            </section>
+
+                            <!-- Real-Time Metrics Display -->
+                            <section class="dashboard-card tilt-card" id="metrics-card">
+                                <div class="card-header">
+                                    <i data-lucide="activity" class="neon-icon-purple"></i>
+                                    <h3>Autonomic Metrics</h3>
+                                </div>
+                                
+                                <div class="metrics-grid">
+                                    <div class="metric-box">
+                                        <span class="metric-title">Heart Rate</span>
+                                        <div class="metric-value-row">
+                                            <span class="metric-number" id="metric-hr">--</span>
+                                            <span class="metric-unit">BPM</span>
+                                        </div>
+                                        <div class="metric-heart-icon" id="heart-pulse-icon">
+                                            <i data-lucide="heart" class="icon-pulse"></i>
+                                        </div>
+                                    </div>
+
+                                    <div class="metric-box">
+                                        <span class="metric-title">HRV (SDNN)</span>
+                                        <div class="metric-value-row">
+                                            <span class="metric-number" id="metric-hrv">--</span>
+                                            <span class="metric-unit">ms</span>
+                                        </div>
+                                        <div class="metric-status" id="hrv-status-label">Stable</div>
+                                    </div>
+                                </div>
+
+                                <!-- HRV Health Indicator Bar -->
+                                <div class="bar-indicator-container">
+                                    <div class="bar-header">
+                                        <span>Parasympathetic Activity (HRV)</span>
+                                        <span id="parasymp-pct">60%</span>
+                                    </div>
+                                    <div class="progress-bar-bg">
+                                        <div class="progress-bar-fill" id="parasymp-fill" style="width: 60%;"></div>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+
+                        <!-- Right Column: 3D visualizer & Waveform -->
+                        <div class="grid-col">
+                            <!-- WebGL 3D Orb Container (Deep 3D space Card) -->
+                            <section class="dashboard-card display-3d-card" id="orb-visualizer-card">
+                                <div class="card-badge" id="orb-status-badge">RELAXED</div>
+                                
+                                <!-- Canvas for Three.js (dynamic mount target) -->
+                                <div class="canvas-container" id="threejs-dashboard-container">
+                                    <!-- Three.js appends canvas here -->
+                                </div>
+
+                                <!-- Real-time Stress Dial Overlay -->
+                                <div class="orb-overlay-stats">
+                                    <div class="stress-digital-display">
+                                        <span class="digital-label">STRESS INDEX</span>
+                                        <h3 class="digital-number" id="stress-index-number">--</h3>
+                                        <p class="digital-sub" id="stress-index-category">CALM STATE</p>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <!-- Real-Time Waveform -->
+                            <section class="dashboard-card tilt-card" id="waveform-card">
+                                <div class="card-header">
+                                    <i data-lucide="waveform" class="neon-icon-cyan"></i>
+                                    <h3>Live Autonomic Waveform</h3>
+                                </div>
+                                <div class="waveform-canvas-box">
+                                    <canvas id="live-waveform-canvas"></canvas>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+
+                    <!-- Daily Stress Trend Chart -->
+                    <section class="dashboard-card full-width-card" id="chart-section" style="margin-top: 2.2rem;">
                         <div class="card-header">
-                            <i data-lucide="cpu" class="neon-icon-cyan"></i>
-                            <h3>Biometric Simulator</h3>
+                            <i data-lucide="trending-up" class="neon-icon-cyan"></i>
+                            <h3>Stress Trend Analytics (Daily)</h3>
                         </div>
-                        <p class="card-desc">Simulate physical and mental states in real time to feed heart telemetry into the AI engine.</p>
-                        
-                        <div class="simulator-sliders">
-                            <div class="slider-group">
-                                <div class="slider-info">
-                                    <label for="slider-anxiety">Mental Anxiety / Stressor</label>
-                                    <span class="slider-val" id="val-anxiety">Low</span>
-                                </div>
-                                <input type="range" id="slider-anxiety" min="0" max="100" value="25" class="neon-slider">
-                            </div>
-                            
-                            <div class="slider-group">
-                                <div class="slider-info">
-                                    <label for="slider-caffeine">Caffeine / Stimulants</label>
-                                    <span class="slider-val" id="val-caffeine">None</span>
-                                </div>
-                                <input type="range" id="slider-caffeine" min="0" max="100" value="10" class="neon-slider">
-                            </div>
-
-                            <div class="slider-group">
-                                <div class="slider-info">
-                                    <label for="slider-activity">Physical Activity Level</label>
-                                    <span class="slider-val" id="val-activity">Resting</span>
-                                </div>
-                                <input type="range" id="slider-activity" min="0" max="100" value="15" class="neon-slider">
-                            </div>
-
-                            <div class="slider-group">
-                                <div class="slider-info">
-                                    <label for="slider-breathing">Deep Paced Breathing</label>
-                                    <span class="slider-val" id="val-breathing">No</span>
-                                </div>
-                                <input type="range" id="slider-breathing" min="0" max="100" value="0" class="neon-slider">
-                            </div>
-                        </div>
-
-                        <div class="simulator-actions">
-                            <button class="btn btn-secondary btn-glow" id="btn-reset-sim">Reset to Normal</button>
-                            <button class="btn btn-primary btn-glow" id="btn-stress-spike">Simulate Panic Attack</button>
+                        <div class="chart-container-box">
+                            <canvas id="stress-trend-chart"></canvas>
                         </div>
                     </section>
-
-                    <!-- Real-Time Metrics Display -->
-                    <section class="dashboard-card tilt-card" id="metrics-card">
-                        <div class="card-header">
-                            <i data-lucide="activity" class="neon-icon-purple"></i>
-                            <h3>Autonomic Metrics</h3>
-                        </div>
-                        
-                        <div class="metrics-grid">
-                            <div class="metric-box">
-                                <span class="metric-title">Heart Rate</span>
-                                <div class="metric-value-row">
-                                    <span class="metric-number" id="metric-hr">--</span>
-                                    <span class="metric-unit">BPM</span>
-                                </div>
-                                <div class="metric-heart-icon" id="heart-pulse-icon">
-                                    <i data-lucide="heart" class="icon-pulse"></i>
-                                </div>
-                            </div>
-
-                            <div class="metric-box">
-                                <span class="metric-title">HRV (SDNN)</span>
-                                <div class="metric-value-row">
-                                    <span class="metric-number" id="metric-hrv">--</span>
-                                    <span class="metric-unit">ms</span>
-                                </div>
-                                <div class="metric-status" id="hrv-status-label">Stable</div>
-                            </div>
-                        </div>
-
-                        <!-- HRV Health Indicator Bar -->
-                        <div class="bar-indicator-container">
-                            <div class="bar-header">
-                                <span>Parasympathetic Activity (HRV)</span>
-                                <span id="parasymp-pct">60%</span>
-                            </div>
-                            <div class="progress-bar-bg">
-                                <div class="progress-bar-fill" id="parasymp-fill" style="width: 60%;"></div>
-                            </div>
-                        </div>
-                    </section>
-
                 </div>
 
-                <!-- COLUMN 2: 3D Orb Visualizer & Stress Score -->
-                <div class="grid-col col-center">
-                    
-                    <!-- WebGL 3D Orb Container (Deep 3D space Card) -->
-                    <section class="dashboard-card display-3d-card" id="orb-visualizer-card">
-                        <div class="card-badge" id="orb-status-badge">RELAXED</div>
-                        
-                        <!-- Canvas for Three.js -->
-                        <div class="canvas-container" id="threejs-canvas-container">
-                            <!-- Three.js appends canvas here -->
+                <!-- 2. BREATHING LAB VIEW -->
+                <div id="view-exercises" class="app-view">
+                    <div class="dashboard-grid-2col">
+                        <!-- Left Column: Information & Controls -->
+                        <div class="grid-col">
+                            <section class="dashboard-card tilt-card">
+                                <div class="card-header">
+                                    <i data-lucide="info" class="neon-icon-green"></i>
+                                    <h3>Autonomic Paced Exercises</h3>
+                                </div>
+                                <p class="card-desc">CBT paced exercises trigger parasympathetic heart-rate deceleration and normalize heart rate variability (HRV) by stimulating the vagus nerve.</p>
+                                
+                                <div class="exercise-select-panel">
+                                    <div class="exercise-option active" data-type="box">
+                                        <div class="opt-meta">
+                                            <h4>Box Breathing (4-4-4-4)</h4>
+                                            <p>Used by athletes and first-responders to block cognitive overload and lower acute anxiety.</p>
+                                        </div>
+                                        <i data-lucide="circle-dot" class="opt-icon"></i>
+                                    </div>
+                                    <div class="exercise-option" data-type="relax">
+                                        <div class="opt-meta">
+                                            <h4>4-7-8 Relaxing Breath</h4>
+                                            <p>A natural nervous system tranquilizer to reset high heart rates and encourage sleep entry.</p>
+                                        </div>
+                                        <i data-lucide="moon" class="opt-icon"></i>
+                                    </div>
+                                    <div class="exercise-option" data-type="scan">
+                                        <div class="opt-meta">
+                                            <h4>3D Body Scan Meditation</h4>
+                                            <p>Sequenced focus points to release somatic muscle tension and somatic anxiety anchors.</p>
+                                        </div>
+                                        <i data-lucide="scan-face" class="opt-icon"></i>
+                                    </div>
+                                </div>
+
+                                <div class="audio-feedback-setting" style="margin-top: 1.5rem; display: flex; align-items: center; justify-content: space-between; padding: 0.8rem; background: rgba(255,255,255,0.02); border-radius: 12px; border: 1px solid var(--border-color);">
+                                    <div style="display:flex; align-items:center; gap:8px;">
+                                        <i data-lucide="volume-2" class="neon-icon-cyan" style="width:18px;height:18px;"></i>
+                                        <span style="font-size:0.88rem; font-weight:500;">Paced Sound Chimes</span>
+                                    </div>
+                                    <label class="switch-toggle">
+                                        <input type="checkbox" id="audio-toggle" checked>
+                                        <span class="switch-slider"></span>
+                                    </label>
+                                </div>
+                            </section>
                         </div>
 
-                        <!-- Real-time Stress Dial Overlay -->
-                        <div class="orb-overlay-stats">
-                            <div class="stress-digital-display">
-                                <span class="digital-label">STRESS INDEX</span>
-                                <h3 class="digital-number" id="stress-index-number">--</h3>
-                                <p class="digital-sub" id="stress-index-category">CALM STATE</p>
-                            </div>
-                        </div>
-                    </section>
+                        <!-- Right Column: Immersive 3D Exercise Console -->
+                        <div class="grid-col">
+                            <section class="dashboard-card display-3d-card" id="breathing-display-card">
+                                <!-- Three.js Container will receive Orb canvas here when view is active -->
+                                <div class="canvas-container" id="threejs-breathing-container"></div>
+                                
+                                <!-- Breathing Visual Ring overlay -->
+                                <div class="breathing-circle-overlay">
+                                    <div class="breathing-stage-indicator" id="breathing-lab-stage">READY</div>
+                                    <div class="breathing-circle-outer" id="breath-circle-outer"></div>
+                                    <div class="breathing-circle-inner" id="breath-circle-inner"></div>
+                                    <div class="breathing-timer" id="breath-timer">00</div>
+                                </div>
 
-                    <!-- Real-Time Waveform (Simulated ECG / HRV pulse tracker) -->
-                    <section class="dashboard-card tilt-card" id="waveform-card">
-                        <div class="card-header">
-                            <i data-lucide="waveform" class="neon-icon-cyan"></i>
-                            <h3>Live Autonomic Waveform</h3>
+                                <div class="breathing-info-footer">
+                                    <p class="breathing-instruction" id="breathing-prompt">Select an exercise and press Start to begin.</p>
+                                    <button class="btn btn-primary btn-glow btn-full" id="btn-breathing-control">Start Breathing Session</button>
+                                </div>
+                            </section>
                         </div>
-                        <div class="waveform-canvas-box">
-                            <canvas id="live-waveform-canvas"></canvas>
-                        </div>
-                    </section>
-
+                    </div>
                 </div>
 
-                <!-- COLUMN 3: Exercises, Journal & Weekly Insights -->
-                <div class="grid-col col-right">
-
-                    <!-- Breathing Lab & Exercises (Interactive 3D breathing block) -->
-                    <section class="dashboard-card tilt-card" id="exercise-card">
-                        <div class="card-header">
-                            <i data-lucide="wind" class="neon-icon-green"></i>
-                            <h3>CBT Breathing Lab</h3>
-                        </div>
-                        
-                        <div class="exercise-selector">
-                            <button class="exercise-btn active" data-type="box">Box (4-4-4-4)</button>
-                            <button class="exercise-btn" data-type="relax">Relax (4-7-8)</button>
-                            <button class="exercise-btn" data-type="scan">Body Scan 3D</button>
-                        </div>
-
-                        <div class="exercise-display" id="exercise-panel">
-                            <!-- Dynamic Breathing Guide -->
-                            <div class="breathing-stage-indicator" id="breathing-stage">Ready</div>
-                            <div class="breathing-circle-container">
-                                <div class="breathing-circle-outer" id="breath-circle-outer"></div>
-                                <div class="breathing-circle-inner" id="breath-circle-inner"></div>
-                                <div class="breathing-timer" id="breath-timer">00</div>
-                            </div>
-                            <div class="breathing-instruction" id="breathing-prompt">Tap Start to begin your exercises.</div>
-                            <button class="btn btn-primary btn-glow btn-full" id="btn-breathing-control">Start Breathing</button>
-                        </div>
-                    </section>
-
-                    <!-- Stress Journal with AI CBT Restructuring Coach -->
-                    <section class="dashboard-card tilt-card" id="journal-card">
-                        <div class="card-header">
-                            <i data-lucide="heart-handshake" class="neon-icon-purple"></i>
-                            <h3>CBT Stress Journal</h3>
-                        </div>
-                        <p class="card-desc">Type your current stressful thoughts. The AI CBT Coach analyzes your text for cognitive distortions and reframes them.</p>
-                        
-                        <div class="journal-input-group">
-                            <textarea id="journal-text" placeholder="I'm feeling overwhelmed because..." class="neon-textarea"></textarea>
-                            
-                            <div class="mood-selector">
-                                <span>Mood:</span>
-                                <div class="mood-tags">
-                                    <button class="mood-tag" data-mood="anxious">😰 Anxious</button>
-                                    <button class="mood-tag" data-mood="angry">😡 Angry</button>
-                                    <button class="mood-tag" data-mood="tired">😴 Tired</button>
-                                    <button class="mood-tag" data-mood="overwhelmed">🤯 Overwhelmed</button>
-                                    <button class="mood-tag" data-mood="calm">🧘 Calm</button>
+                <!-- 3. STRESS JOURNAL VIEW -->
+                <div id="view-journal" class="app-view">
+                    <div class="dashboard-grid-2col">
+                        <!-- Left Column: Input Panel -->
+                        <div class="grid-col">
+                            <section class="dashboard-card tilt-card">
+                                <div class="card-header">
+                                    <i data-lucide="edit-3" class="neon-icon-purple"></i>
+                                    <h3>Deconstruct Your Stress</h3>
                                 </div>
-                            </div>
-                            
-                            <button class="btn btn-primary btn-glow btn-full" id="btn-submit-journal">Analyze thoughts (AI)</button>
+                                <p class="card-desc">Journal your raw, unedited thoughts. The AI CBT Coach will analyze them for automatic cognitive distortions and offer balanced, structured reframes.</p>
+                                
+                                <div class="journal-input-group">
+                                    <textarea id="journal-text" placeholder="Explain what is causing you stress right now, and what thoughts are running in your head..." class="neon-textarea"></textarea>
+                                    
+                                    <div class="mood-selector">
+                                        <span>Current Mood Tag:</span>
+                                        <div class="mood-tags">
+                                            <button class="mood-tag" data-mood="anxious">😰 Anxious</button>
+                                            <button class="mood-tag" data-mood="angry">😡 Angry</button>
+                                            <button class="mood-tag" data-mood="tired">😴 Tired</button>
+                                            <button class="mood-tag" data-mood="overwhelmed">🤯 Overwhelmed</button>
+                                            <button class="mood-tag" data-mood="calm">🧘 Calm</button>
+                                        </div>
+                                    </div>
+                                    
+                                    <button class="btn btn-primary btn-glow btn-full" id="btn-submit-journal">Analyze thoughts (AI)</button>
+                                </div>
+
+                                <!-- AI Restructuring Output Card (3D Glassmorphism) -->
+                                <div class="ai-coach-card hidden" id="ai-coach-panel">
+                                    <div class="coach-header">
+                                        <i data-lucide="sparkles" class="ai-sparkle-icon"></i>
+                                        <span>CBT AI COACH</span>
+                                    </div>
+                                    <div class="coach-body">
+                                        <p class="cbt-distortion"><strong>Distortion:</strong> <span id="cbt-distortion-text">None</span></p>
+                                        <p class="cbt-reframe"><strong>Balanced Perspective:</strong> <span id="cbt-reframe-text">Type something above and submit to see restructuring.</span></p>
+                                    </div>
+                                </div>
+                            </section>
                         </div>
 
-                        <!-- AI Restructuring Output Card (3D Glassmorphism) -->
-                        <div class="ai-coach-card hidden" id="ai-coach-panel">
-                            <div class="coach-header">
-                                <i data-lucide="sparkles" class="ai-sparkle-icon"></i>
-                                <span>CBT AI COACH</span>
-                            </div>
-                            <div class="coach-body">
-                                <p class="cbt-distortion"><strong>Distortion:</strong> <span id="cbt-distortion-text">None</span></p>
-                                <p class="cbt-reframe"><strong>Balanced Perspective:</strong> <span id="cbt-reframe-text">Type something above and submit to see restructuring.</span></p>
-                            </div>
+                        <!-- Right Column: Timeline Log -->
+                        <div class="grid-col">
+                            <section class="dashboard-card tilt-card" id="journal-history-card">
+                                <div class="card-header">
+                                    <i data-lucide="history" class="neon-icon-cyan"></i>
+                                    <h3>CBT Journal History</h3>
+                                </div>
+                                <p class="card-desc">Your timeline of cognitive exercises. Click entries to expand and review reframed perspectives.</p>
+                                
+                                <div class="journal-history-timeline" id="journal-history-timeline">
+                                    <div class="empty-timeline-message">
+                                        <i data-lucide="book-open" class="empty-icon"></i>
+                                        <p>No journal entries logged yet. Your cognitive reframing entries will appear here.</p>
+                                    </div>
+                                </div>
+                            </section>
                         </div>
-                    </section>
+                    </div>
+                </div>
 
+                <!-- 4. WEEKLY INSIGHTS VIEW -->
+                <div id="view-insights" class="app-view">
+                    <!-- Top Summary Stats Grid -->
+                    <div class="insights-summary-grid" style="margin-bottom: 2.2rem;">
+                        <div class="insight-stat-card">
+                            <div class="stat-header">
+                                <span class="stat-title">Weekly Stress Index</span>
+                                <i data-lucide="sparkles" class="neon-icon-cyan"></i>
+                            </div>
+                            <div class="stat-value-group">
+                                <span class="stat-value" id="insight-weekly-stress">38</span>
+                                <span class="stat-label-badge low-stress">Optimized</span>
+                            </div>
+                            <p class="stat-trend"><span class="trend-green">↓ 14%</span> vs previous week</p>
+                        </div>
+
+                        <div class="insight-stat-card">
+                            <div class="stat-header">
+                                <span class="stat-title">Avg HRV Recovery</span>
+                                <i data-lucide="heart" class="neon-icon-purple"></i>
+                            </div>
+                            <div class="stat-value-group">
+                                <span class="stat-value" id="insight-weekly-hrv">74</span>
+                                <span class="stat-unit">ms</span>
+                            </div>
+                            <p class="stat-trend"><span class="trend-green">↑ 8%</span> autonomic recovery</p>
+                        </div>
+
+                        <div class="insight-stat-card">
+                            <div class="stat-header">
+                                <span class="stat-title">Resting Heart Rate</span>
+                                <i data-lucide="activity" class="neon-icon-yellow"></i>
+                            </div>
+                            <div class="stat-value-group">
+                                <span class="stat-value" id="insight-weekly-hr">62</span>
+                                <span class="stat-unit">BPM</span>
+                            </div>
+                            <p class="stat-trend"><span class="trend-green">Stable</span> parasympathetic baseline</p>
+                        </div>
+
+                        <div class="insight-stat-card">
+                            <div class="stat-header">
+                                <span class="stat-title">Breathing Lab Time</span>
+                                <i data-lucide="clock" class="neon-icon-green"></i>
+                            </div>
+                            <div class="stat-value-group">
+                                <span class="stat-value" id="insight-weekly-breathing">24</span>
+                                <span class="stat-unit">mins</span>
+                            </div>
+                            <p class="stat-trend"><span class="trend-purple">6 sessions</span> completed</p>
+                        </div>
+                    </div>
+
+                    <div class="dashboard-grid-2col">
+                        <!-- Left Column: Diagnostic Analytics -->
+                        <div class="grid-col">
+                            <!-- Stress Triggers card -->
+                            <section class="dashboard-card tilt-card">
+                                <div class="card-header">
+                                    <i data-lucide="bar-chart-3" class="neon-icon-purple"></i>
+                                    <h3>Autonomic Stress Triggers</h3>
+                                </div>
+                                <p class="card-desc">Diagnostic calculation of somatic and physical inputs causing autonomic stress index elevation based on logs.</p>
+                                
+                                <div class="trigger-bars-list" id="triggers-list-container">
+                                    <!-- Dynamic content inserted by app.js -->
+                                </div>
+                            </section>
+
+                            <!-- Stress Zone distribution bar -->
+                            <section class="dashboard-card tilt-card">
+                                <div class="card-header">
+                                    <i data-lucide="pie-chart" class="neon-icon-cyan"></i>
+                                    <h3>Daily Autonomic Zone Distribution</h3>
+                                </div>
+                                <p class="card-desc">Percentage of diurnal cycle spent in distinct autonomic activation phases.</p>
+                                
+                                <div class="zone-bars-container">
+                                    <div class="zone-bar-row">
+                                        <div class="zone-meta">
+                                            <span>Calm Zone (Parasympathetic activation)</span>
+                                            <span class="zone-pct" id="pct-zone-calm">45%</span>
+                                        </div>
+                                        <div class="zone-bar-track"><div class="zone-bar-fill calm" id="fill-zone-calm" style="width: 45%;"></div></div>
+                                    </div>
+                                    
+                                    <div class="zone-bar-row">
+                                        <div class="zone-meta">
+                                            <span>Balanced Zone (Homeostatic baseline)</span>
+                                            <span class="zone-pct" id="pct-zone-balanced">35%</span>
+                                        </div>
+                                        <div class="zone-bar-track"><div class="zone-bar-fill balanced" id="fill-zone-balanced" style="width: 35%;"></div></div>
+                                    </div>
+                                    
+                                    <div class="zone-bar-row">
+                                        <div class="zone-meta">
+                                            <span>Alert Zone (Sympathetic engagement)</span>
+                                            <span class="zone-pct" id="pct-zone-alert">15%</span>
+                                        </div>
+                                        <div class="zone-bar-track"><div class="zone-bar-fill alert" id="fill-zone-alert" style="width: 15%;"></div></div>
+                                    </div>
+                                    
+                                    <div class="zone-bar-row">
+                                        <div class="zone-meta">
+                                            <span>Overload Zone (Stress Spike)</span>
+                                            <span class="zone-pct" id="pct-zone-stress">5%</span>
+                                        </div>
+                                        <div class="zone-bar-track"><div class="zone-bar-fill stress" id="fill-zone-stress" style="width: 5%;"></div></div>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+
+                        <!-- Right Column: AI Cognitive Insights & Tips -->
+                        <div class="grid-col">
+                            <section class="dashboard-card tilt-card" style="height: 100%; display: flex; flex-direction: column;">
+                                <div class="card-header">
+                                    <i data-lucide="sparkles" class="neon-icon-cyan"></i>
+                                    <h3>AI Cognitive Wellness Report</h3>
+                                </div>
+                                <p class="card-desc">Weekly diagnostic review from your CBT coaching logs.</p>
+                                
+                                <div class="insights-cbt-summary-box" style="flex-grow: 1; display:flex; flex-direction:column; gap:1.2rem;">
+                                    <div class="cbt-pattern-card">
+                                        <span class="pattern-header">PRIMARY COGNITIVE PATTERN DETECTED</span>
+                                        <h4 class="pattern-name" id="insight-cbt-distortion-pattern">None Detected</h4>
+                                        <p class="pattern-explanation" id="insight-cbt-distortion-desc">Log your feelings in the Stress Journal to allow the AI to extract cognitive patterns and map behavioral trends.</p>
+                                    </div>
+                                    
+                                    <div class="recommendations-box">
+                                        <span class="pattern-header">PERSONALIZED CBT INTERVENTIONS</span>
+                                        <ul class="cbt-recs-list" id="insights-recommendations-list">
+                                            <li><i data-lucide="check-circle" class="li-icon text-cyan"></i> Continue simulating biometrics and track daily recovery metrics on the Dashboard.</li>
+                                            <li><i data-lucide="check-circle" class="li-icon text-green"></i> Complete at least one 10-minute Box Breathing session when feeling overloaded.</li>
+                                            <li><i data-lucide="check-circle" class="li-icon text-purple"></i> Log your stress events immediately to map cognitive distortions while acute.</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
                 </div>
 
             </div>
-
-            <!-- LOWER GRID: Weekly Trend Chart & Analytics -->
-            <section class="dashboard-card full-width-card" id="chart-section">
-                <div class="card-header">
-                    <i data-lucide="trending-up" class="neon-icon-cyan"></i>
-                    <h3>Stress Trend Analytics (Daily)</h3>
-                </div>
-                <div class="chart-container-box">
-                    <canvas id="stress-trend-chart"></canvas>
-                </div>
-            </section>
 
         </main>
     </div>
